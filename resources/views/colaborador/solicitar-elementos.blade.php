@@ -48,7 +48,6 @@
             border-radius: 4px;
         }
 
-        /* Ajuste para que el select sea más grande */
         .element-input-row select.elemento-select {
             flex: 2;
             padding: 0.75rem;
@@ -154,19 +153,6 @@
             margin-left: auto;
             margin-right: auto;
         }
-
-        .tooltip {
-            position: absolute;
-            background-color: #333;
-            color: white;
-            padding: 0.5rem;
-            border-radius: 4px;
-            z-index: 10;
-            display: none;
-            max-width: 300px;
-            text-align: left;
-            font-size: 0.9rem;
-        }
     </style>
 </head>
 
@@ -226,6 +212,10 @@
                     required>
                 <button type="button" class="add-btn" onclick="addItemToTable()">Agregar</button>
             </div>
+            
+            <div id="descripcion-elemento" style="margin-top: 1rem; padding: 0.5rem; border-left: 4px solid #007bff; background-color: #f8f9fa;">
+                <p style="margin: 0; font-style: italic;">Selecciona un elemento para ver su descripción.</p>
+            </div>
 
             <h3>Elementos del Pedido</h3>
             <table id="pedido-table">
@@ -242,7 +232,6 @@
                 </tbody>
             </table>
 
-
             <table class="ancho">
                 <tbody>
                     <tr>
@@ -258,15 +247,13 @@
             </table>
 
             <br>
-
             <input type="hidden" name="fecha_pedido" value="{{ date('Y-m-d') }}">
-            <button type="submit" class="btn btn-primary" id="submit-btn" disabled>Enviar Solicitud</button>
+            <button type="button" class="btn btn-primary" id="submit-btn" onclick="handleFormSubmission()" disabled>Enviar Solicitud</button>
             <a href="{{ route('colaborador.dashboard') }}" class="btn btn-secondary">Cancelar</a>
         </form>
     </div>
 
-    <div id="description-tooltip" class="tooltip"></div>
-
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         const elementos = @json($elementos->keyBy('id'));
         const valorDisponibleInicial = {{ $valor_disponible }};
@@ -308,67 +295,109 @@
             const select = document.getElementById('elemento-select');
             const cantidadInput = document.getElementById('cantidad-input');
             const elementoId = select.value;
-            const cantidad = cantidadInput.value;
+            const cantidad = parseInt(cantidadInput.value, 10);
 
-            if (!elementoId || cantidad <= 0) {
-                alert('Por favor, selecciona un elemento y una cantidad válida.');
+            if (!elementoId || cantidad <= 0 || isNaN(cantidad)) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de Solicitud',
+                    text: 'Por favor, selecciona un elemento y una cantidad válida.',
+                });
                 return;
             }
 
             const elemento = elementos[elementoId];
-            const subtotal = parseFloat(elemento.precio_unitario) * parseFloat(cantidad);
-
             const tableBody = document.querySelector('#pedido-table tbody');
-            const newRow = tableBody.insertRow();
 
-            newRow.innerHTML = `
-                <td>${elemento.descripcion}</td>
-                <td>${cantidad}</td>
-                <td class="text-right">${formatCurrency(elemento.precio_unitario)}</td>
-                <td class="subtotal-item text-right" data-value="${subtotal}">${formatCurrency(subtotal)}</td>
-                <td><button type="button" class="remove-btn" onclick="this.closest('tr').remove(); calculateTotals();">Quitar</button></td>
-                <input type="hidden" name="elementos[${itemCounter}][elemento_id]" value="${elementoId}">
-                <input type="hidden" name="elementos[${itemCounter}][cantidad]" value="${cantidad}">
-            `;
+            // Buscar si el elemento ya existe en la tabla
+            const existingRow = tableBody.querySelector(`tr[data-elemento-id="${elementoId}"]`);
 
-            itemCounter++;
+            if (existingRow) {
+                // Si el elemento existe, actualizar la cantidad y el subtotal
+                const currentCantidadCell = existingRow.querySelector('.cantidad-item');
+                const currentSubtotalCell = existingRow.querySelector('.subtotal-item');
+                const hiddenCantidadInput = existingRow.querySelector(`input[name*="[cantidad]"]`);
+
+                const nuevaCantidad = parseInt(currentCantidadCell.innerText, 10) + cantidad;
+                const nuevoSubtotal = nuevaCantidad * parseFloat(elemento.precio_unitario);
+
+                currentCantidadCell.innerText = nuevaCantidad;
+                currentSubtotalCell.dataset.value = nuevoSubtotal;
+                currentSubtotalCell.innerText = formatCurrency(nuevoSubtotal);
+                hiddenCantidadInput.value = nuevaCantidad;
+
+            } else {
+                // Si el elemento no existe, agregar una nueva fila
+                const newRow = tableBody.insertRow();
+                const subtotal = parseFloat(elemento.precio_unitario) * cantidad;
+
+                newRow.dataset.elementoId = elementoId;
+
+                newRow.innerHTML = `
+                    <td>${elemento.descripcion}</td>
+                    <td class="cantidad-item">${cantidad}</td>
+                    <td class="text-right">${formatCurrency(elemento.precio_unitario)}</td>
+                    <td class="subtotal-item text-right" data-value="${subtotal}">${formatCurrency(subtotal)}</td>
+                    <td><button type="button" class="remove-btn" onclick="this.closest('tr').remove(); calculateTotals();">Quitar</button></td>
+                    <input type="hidden" name="elementos[${itemCounter}][elemento_id]" value="${elementoId}">
+                    <input type="hidden" type="hidden" name="elementos[${itemCounter}][cantidad]" value="${cantidad}">
+                `;
+                itemCounter++;
+            }
+
             calculateTotals();
+            // Limpiar el campo de cantidad y resetear el select para una nueva selección
+            select.value = "";
+            cantidadInput.value = 1;
         }
 
-        function showDescription(selectElement, event) {
+        function showDescription(selectElement) {
             const selectedOption = selectElement.options[selectElement.selectedIndex];
-            const tooltip = document.getElementById('description-tooltip');
-
+            const descripcionDiv = document.getElementById('descripcion-elemento');
+            
             if (selectedOption.dataset.descripcion) {
-                tooltip.innerText = selectedOption.dataset.descripcion;
-                tooltip.style.display = 'block';
-                tooltip.style.left = `${event.pageX + 15}px`;
-                tooltip.style.top = `${event.pageY}px`;
+                descripcionDiv.innerHTML = `<p style="margin: 0;"><strong>Descripción:</strong> ${selectedOption.dataset.descripcion}</p>`;
             } else {
-                tooltip.style.display = 'none';
+                descripcionDiv.innerHTML = `<p style="margin: 0; font-style: italic;">Selecciona un elemento para ver su descripción.</p>`;
             }
         }
 
-        function hideTooltip() {
-            const tooltip = document.getElementById('description-tooltip');
-            tooltip.style.display = 'none';
-        }
+        function handleFormSubmission() {
+            // Recalcular el valor total del pedido
+            let totalPedido = 0;
+            const subtotalElements = document.querySelectorAll('.subtotal-item');
+            subtotalElements.forEach(element => {
+                totalPedido += parseFloat(element.dataset.value);
+            });
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const container = document.getElementById('elementos-container');
-            container.addEventListener('change', (event) => {
-                if (event.target.classList.contains('elemento-select')) {
-                    const select = event.target;
-                    const selectedOption = select.options[select.selectedIndex];
-                    const tooltip = document.getElementById('description-tooltip');
+            // Verificar el saldo restante
+            const saldoRestante = valorDisponibleInicial - totalPedido;
+            if (saldoRestante < 0) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Saldo Insuficiente',
+                    text: 'El valor total de este pedido (' + formatCurrency(totalPedido) + ') excede tu saldo disponible. No se puede enviar el pedido.',
+                });
+                return;
+            }
 
-                    if (selectedOption.dataset.descripcion) {
-                        tooltip.innerText = selectedOption.dataset.descripcion;
-                    }
+            // Mostrar el modal de SweetAlert para confirmar la solicitud
+            Swal.fire({
+                title: '¿Estás seguro?',
+                text: 'El valor total de tu pedido es ' + formatCurrency(totalPedido) + '.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Sí, enviar solicitud',
+                cancelButtonText: 'Cancelar'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Si el usuario confirma, envía el formulario
+                    document.querySelector('form').submit();
                 }
             });
-            calculateTotals();
-        });
+        }
     </script>
 </body>
 
